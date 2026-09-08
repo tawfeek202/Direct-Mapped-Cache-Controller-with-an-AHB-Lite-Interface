@@ -8,6 +8,12 @@ standard AHB-Lite transfers exactly as it would to a memory-mapped slave,
 and the controller decides internally whether to answer immediately from
 the cache or to stall and fetch/write through to memory.
 
+Correctness is verified two independent ways: **signal-level RTL
+testbenches** in Icarus Verilog (protocol timing, FSM transitions, hazard
+analysis) and a **transaction-level golden reference model** written from
+scratch in Python (functional/spec-level cross-check). See
+[Golden Reference Model (Independent Software Verification)](#golden-reference-model-independent-software-verification).
+
 ---
 
 ## Table of Contents
@@ -25,8 +31,9 @@ the cache or to stall and fetch/write through to memory.
    - [ahb_mem_model](#7-ahb_mem_model-verification-only)
 5. [FSM Deep Dives](#fsm-deep-dives)
 6. [End-to-End Walkthroughs](#end-to-end-walkthroughs)
-7. [Repository Structure](#repository-structure)
-8. [Future Work](#future-work)
+7. [Golden Reference Model (Independent Software Verification)](#golden-reference-model-independent-software-verification)
+8. [Repository Structure](#repository-structure)
+9. [Future Work](#future-work)
 
 ---
 
@@ -53,6 +60,19 @@ The controller is composed of two independent AHB-Lite state machines
 (one slave, one master) plus a cache storage core sandwiched between them.
 Neither FSM ever touches memory arrays directly — all storage access is
 mediated by `cache_core`.
+
+![Cache Controller Architecture](docs/Architecture.jpg)
+
+*Full signal-level block diagram: `Memory Side Master FSM` and
+`CPU Side Slave FSM` each expose a complete AHB-Lite port (to the memory
+slave and CPU master respectively) and communicate with each other purely
+through the internal `miss_req` / `miss_addr` / `miss_is_write` /
+`miss_wdata` / `mem_op_done` handshake. Both FSMs drive `cache_core`
+through separate, non-overlapping buses — the `core_*` request/response
+bus from the CPU-side FSM, and the `fill_*` bus from the memory-side FSM —
+so neither FSM can accidentally interfere with the other's access to
+storage. `HCLK`/`HRESETn` are distributed globally to every sequential
+block.*
 
 ```mermaid
 flowchart LR
@@ -113,7 +133,9 @@ A 32-bit CPU address is split into three fields used throughout the design:
 
 This split is computed combinationally in `cpu_side_slave_fsm` from the live
 `HADDR`, and independently recomputed in `mem_side_master_fsm` from its own
-latched `addr_reg` during a fill.
+latched `addr_reg` during a fill. The same split is re-derived a third,
+independent way in the Golden Reference Model's `split_address()` — see
+[Golden Reference Model](#golden-reference-model-independent-software-verification).
 
 ---
 
@@ -215,7 +237,11 @@ transfer.
 
 Not part of the deliverable RTL — a simple, fixed 1-cycle-latency AHB-Lite
 slave memory model used purely to exercise the master FSM in
-`tb_full_chain.v`. Included in the repo for reproducible simulation.
+`tb_full_chain.v`. Included in the repo for reproducible simulation. Its
+exact initialization pattern (`mem[i] = 0xCCCC_0000 + i`) is also
+reproduced in the Golden Reference Model's `BackingMemory` class so that
+both verification paths produce numerically comparable results — see
+[Golden Reference Model](#golden-reference-model-independent-software-verification).
 
 ---
 
@@ -430,23 +456,83 @@ index=10, tag=0x7").
 
 ---
 
+## Golden Reference Model (Independent Software Verification)
+
+In addition to the signal-level RTL testbenches (`tb_cache_core.v`,
+`tb_full_chain.v`, `tb_cache_controller_top.v`), this project includes a
+**golden reference model**: a transaction-level cache model written from
+scratch in Python, in `Golden_Model/`. It exists to catch a class of bug
+that self-checking RTL testbenches structurally cannot: if the same
+engineer misunderstands the specification in the same way while writing
+both the RTL and its testbench, the testbench will pass while quietly
+checking the wrong thing. An independently-written model, built only from
+the spec (address breakdown, line size, write policy) rather than by
+reading the RTL's logic, has no reason to reproduce that same mistake.
+
+This model does **not** replace the RTL testbenches — it deliberately
+operates one level up. It has no notion of `HREADY` stalls, burst beats, or
+FSM states; it only asks "if the CPU issues this read/write, what data
+comes back, and what does memory end up holding?" Protocol-timing
+correctness (the exact class of bug that `RD_WAIT` was added to fix) remains
+the job of the signal-level RTL testbenches.
+
+### How the model maps to the RTL
+
+| RTL Concept | Reference Model Equivalent |
+|---|---|
+| `cpu_side_slave_fsm` hit/miss decision | `CacheModel._lookup()` |
+| `cache_core` (tag_valid_array + comparator + data_line_array) | `CacheLine` dataclass + `CacheModel.lines[]` (64 entries) |
+| `mem_side_master_fsm` 4-beat INCR burst fill | `CacheModel._fill_line()` (fetches all 4 words at once — burst timing itself is out of scope) |
+| `mem_side_master_fsm` single-beat write-through | The memory-write step inside `CacheModel.do_write()` |
+| `ahb_mem_model.v` backing memory + `0xCCCC_0000+i` init pattern | `BackingMemory` class (same init formula, for numerically comparable results) |
+| `cpu_side_slave_fsm` `STATE_COMPLETE` (re-issue write after fill) | The fill-then-write-hit sequence inside `do_write()` |
+| `HADDR` tag/index/word-offset slicing | `split_address()` |
+
+### Running it
+
+```bash
+cd Golden_Model
+python3 compare_with_rtl.py   # replays RTL test sequences, 12/12 pass
+python3 stress_test.py        # 2,500 randomized ops, 0 mismatches
+```
+
 ## Repository Structure
 
 ```
 .
-├── README.md                          # this file
-├── tag_valid_array.v                  # Block 1: tag + valid storage
-├── comparator.v                       # Block 2: hit/miss decision
-├── data_line_array.v                  # Block 3: data storage + line buffer
-├── cache_core.v                       # Top-level glue for blocks 1-3
-├── cpu_side_slave_fsm.v               # AHB-Lite slave FSM (CPU-facing)
-├── mem_side_master_fsm.v              # AHB-Lite master FSM (memory-facing)
-├── ahb_mem_model.v                    # Verification-only memory model
-├── cache_controller_top.v             # Top-level integration
-├── tb_cache_core.v                    # Unit testbench for cache_core
-├── tb_full_chain.v                    # Full-chain integration testbench
-├── tb_cache_controller_top.v          # Top-level testbench
-└── Cache_Controller_Project_Report.docx  # Formal NTI submission report
+├── README.md                               # this file
+├── LICENSE
+├── filelist.f
+├── run.do                                  # ModelSim/QuestaSim simulation script
+├── wave.do                                 # Waveform signal groups 
+│
+├── Cache_Core/
+│   ├── cache_core.v                        # Top-level glue for the 3 storage blocks
+│   ├── comparator.v                        # Block 2: hit/miss decision
+│   ├── data_line_array.v                   # Block 3: data storage + line buffer
+│   └── tag_valid_array.v                   # Block 1: tag + valid storage
+│
+├── cache_controller_top.v                  # Top-level integration (the deliverable IP)
+├── cpu_side_slave_fsm.v                    # AHB-Lite slave FSM (CPU-facing)
+├── mem_side_master_fsm.v                   # AHB-Lite master FSM (memory-facing)
+│
+├── tb/
+│   ├── tb_cache_core.v                     # Unit testbench for cache_core
+│   ├── tb_full_chain.v                     # Full-chain integration testbench
+│   ├── tb_cache_controller_top.v           # Top-level testbench
+│   └── ahb_mem_model.v                     # Verification-only memory model
+│
+├── Golden_Model/                           # Independent Python verification model
+│   ├── cache_reference_model.py            # The golden model (BackingMemory, CacheLine, CacheModel)
+│   ├── compare_with_rtl.py                 # Scoreboard: replays RTL test sequences
+│   ├── compare_with_rtl_output.log         # Captured output (12/12 checks pass)
+│   ├── stress_test.py                      # Randomized invariant test (2,500 ops)
+│   └── stress_test_output.log              # Captured output (0/2,500 mismatches)
+│
+└── docs/
+    ├── Architecture.jpg                    # Full signal-level block diagram (shown above)
+    ├── Golden_Model_Report.docx            # Full write-up of the golden model
+    └── Direct-Mapped Cache Controller with an AHB-Lite Interface.pdf  # Formal NTI report
 ```
 
 ---
@@ -461,9 +547,14 @@ index=10, tag=0x7").
   AHB-Lite transfers only).
 - Configurable associativity (set-associative extension) as a follow-on
   architecture exercise.
+- **Live Icarus diffing for the Golden Model.** `compare_with_rtl.py`
+  currently compares against the RTL testbenches' recorded expected
+  values; wiring it up to parse fresh `iverilog`/`vvp` stdout directly
+  would close the loop into a true live diff.
+- HRESP error responses (SPLIT/RETRY/ERROR) for fuller AHB-Lite compliance.
 
 ---
 
-*Developed as part of the NTI HireReady Scholarship, DEY Program (OJT
-track). Verified via self-checking assertions across unit and full-chain
-simulation.*
+track). Verified via self-checking RTL assertions across unit and
+full-chain simulation, and cross-checked against an independent Python
+golden reference model.*
