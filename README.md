@@ -9,8 +9,7 @@ and the controller decides internally whether to answer immediately from
 the cache or to stall and fetch/write through to memory.
 
 Correctness is verified two independent ways: **signal-level RTL
-testbenches** in Icarus Verilog (protocol timing, FSM transitions, hazard
-analysis) and a **transaction-level golden reference model** written from
+testbenches** in Verilog and a **transaction-level golden reference model** written from
 scratch in Python (functional/spec-level cross-check). See
 [Golden Reference Model (Independent Software Verification)](#golden-reference-model-independent-software-verification).
 
