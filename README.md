@@ -539,22 +539,12 @@ python3 stress_test.py        # 2,500 randomized ops, 0 mismatches
 
 ## Future Work
 
-- **L2 cache.** Explicitly scoped out of this project (twice, under
-  deliberate scope discipline against creep pressure during design
-  discussions) and documented here as a natural next extension rather than
-  a missing requirement.
+- **L2 cache.** Explicitly scoped out of this project 
 - Multi-word burst support for CPU-side transfers (currently single-word
   AHB-Lite transfers only).
 - Configurable associativity (set-associative extension) as a follow-on
   architecture exercise.
-- **Live Icarus diffing for the Golden Model.** `compare_with_rtl.py`
-  currently compares against the RTL testbenches' recorded expected
-  values; wiring it up to parse fresh `iverilog`/`vvp` stdout directly
-  would close the loop into a true live diff.
 - HRESP error responses (SPLIT/RETRY/ERROR) for fuller AHB-Lite compliance.
 
 ---
 
-track). Verified via self-checking RTL assertions across unit and
-full-chain simulation, and cross-checked against an independent Python
-golden reference model.*
