@@ -1,0 +1,18 @@
+Randomized Stress / Invariant Cross-Check
+======================================================================
+Property under test: write-through cache's backing memory must
+always match a direct (uncached) memory system after the same
+transaction sequence, regardless of hit/miss history.
+
+[seed=1] 500 ops | read mismatches=0 | final-memory-image mismatches=0 | fills=64 write-throughs=254 -> PASS
+[seed=2] 500 ops | read mismatches=0 | final-memory-image mismatches=0 | fills=64 write-throughs=260 -> PASS
+[seed=3] 500 ops | read mismatches=0 | final-memory-image mismatches=0 | fills=64 write-throughs=265 -> PASS
+[seed=42] 500 ops | read mismatches=0 | final-memory-image mismatches=0 | fills=64 write-throughs=243 -> PASS
+[seed=12345] 500 ops | read mismatches=0 | final-memory-image mismatches=0 | fills=64 write-throughs=251 -> PASS
+
+======================================================================
+TOTAL: 2500 random ops across 5 seeds
+Read mismatches: 0
+Final-memory-image mismatches: 0
+RESULT: Write-through invariant holds across all randomized sequences.
+======================================================================

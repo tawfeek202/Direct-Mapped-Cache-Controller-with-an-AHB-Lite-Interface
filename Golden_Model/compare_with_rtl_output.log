@@ -1,0 +1,31 @@
+Golden Reference Model vs. RTL Testbench Expected Values
+======================================================================
+Model: cache_reference_model.py (independent Python implementation)
+Expected values sourced from: tb_full_chain.v / tb_cache_controller_top.v
+(both RTL testbenches pass 0/N failures under Icarus Verilog)
+
+==== Sequence: tb_full_chain / tb_cache_controller_top Tests 1-6 ====
+[PASS] T1: read data after miss-fill : got=0xcccc0010 expected=0xcccc0010
+[PASS] T2: read data on hit matches : got=0xcccc0010 expected=0xcccc0010
+[PASS] T3: read-back after write-hit : got=0xdeadbeef expected=0xdeadbeef
+[PASS] T4: memory array updated by write-through : got=0xdeadbeef expected=0xdeadbeef
+[PASS] T5: second line reads correct data : got=0xcccc0020 expected=0xcccc0020
+[PASS] T5: first line still holds written value : got=0xdeadbeef expected=0xdeadbeef
+[PASS] T6: third line reads correct data : got=0xcccc0030 expected=0xcccc0030
+---- 7 checks run, 0 failed ----
+
+==== Sequence: Test 7 hazard-style check (functional analogue) ====
+[PASS] T7: read data correct on new line 0x140 : got=0xcccc0050 expected=0xcccc0050
+[PASS] T7: exactly one fill occurred for one CPU miss : got=0x1 expected=0x1
+[PASS] T7: re-read after fill is stable : got=0xcccc0050 expected=0xcccc0050
+---- 3 checks run, 0 failed ----
+
+==== Sequence: Write-allocate-on-miss policy check ====
+[PASS] WA: write-miss then read-back reflects written value : got=0xcafef00d expected=0xcafef00d
+[PASS] WA: write-through also reached backing memory : got=0xcafef00d expected=0xcafef00d
+---- 2 checks run, 0 failed ----
+
+======================================================================
+GRAND TOTAL: 12 checks, 0 failed
+RESULT: Golden model agrees with all RTL-testbench-derived expected values.
+======================================================================
